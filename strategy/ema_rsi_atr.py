@@ -109,9 +109,9 @@ def generate_signal(df: pd.DataFrame, cfg: dict) -> dict:
         return {
             "signal": "long",
             "entry": entry,
-            "stop_loss": round(entry - sl_dist, 2),
-            "take_profit": round(entry + tp_dist, 2),
-            "atr": round(atr_val, 2),
+            "stop_loss": entry - sl_dist,
+            "take_profit": entry + tp_dist,
+            "atr": atr_val,
             "rsi": round(curr["rsi"], 2),
             "reason": f"EMA crossover UP | RSI={curr['rsi']:.1f} | Vol confirmed"
         }
@@ -120,9 +120,9 @@ def generate_signal(df: pd.DataFrame, cfg: dict) -> dict:
         return {
             "signal": "short",
             "entry": entry,
-            "stop_loss": round(entry + sl_dist, 2),
-            "take_profit": round(entry - tp_dist, 2),
-            "atr": round(atr_val, 2),
+            "stop_loss": entry + sl_dist,
+            "take_profit": entry - tp_dist,
+            "atr": atr_val,
             "rsi": round(curr["rsi"], 2),
             "reason": f"EMA crossover DOWN | RSI={curr['rsi']:.1f} | Vol confirmed"
         }
