@@ -1,0 +1,19 @@
+# Environment files containing sensitive keys
+.env
+.env.local
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs
+logs/
+*.log
+
+# Backtest temporary outputs
+*.csv
+
+# OS generated files
+.DS_Store
+Thumbs.db
