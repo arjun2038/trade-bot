@@ -19,7 +19,10 @@ TESTNET_URLS = {
 }
 
 # --- Trading Parameters ---
-SYMBOL = os.getenv("SYMBOL", "BTC/USDT:USDT")
+# Supports comma-separated symbols, e.g. BTCUSDT,ETHUSDT,XRPUSDT,SOLUSDT
+SYMBOLS_RAW = os.getenv("SYMBOLS", os.getenv("SYMBOL", "BTCUSDT,ETHUSDT,XRPUSDT"))
+SYMBOLS = [s.strip().replace("/", "").replace(":USDT", "") for s in SYMBOLS_RAW.split(",") if s.strip()]
+SYMBOL = SYMBOLS[0] if SYMBOLS else "BTCUSDT"  # Backward compatibility
 TIMEFRAME = os.getenv("TIMEFRAME", "15m")
 LEVERAGE = int(os.getenv("LEVERAGE", 5))
 RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE", 1.0))   # % of balance

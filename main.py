@@ -39,8 +39,8 @@ CONFIG = {
     "MAX_OPEN_TRADES": cfg.MAX_OPEN_TRADES,
 }
 
-# Binance symbol format (no slash, no colon)
-BINANCE_SYMBOL = cfg.SYMBOL.replace("/", "").replace(":USDT", "")  # e.g. BTCUSDT
+# Binance symbols to trade
+SYMBOLS = cfg.SYMBOLS
 
 # Module instances (initialized in main)
 order_mgr = None
@@ -48,105 +48,123 @@ risk_mgr = None
 telegram = None
 
 
-def run_strategy():
-    """Main strategy execution — called every candle close."""
-    logger.info(f"{'='*50}")
-    logger.info(f"Running strategy @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+def run_strategy_for_symbol(symbol: str, balance: float, all_open_positions: list):
+    """Execute strategy check for a specific symbol."""
+    logger.info(f"--- Checking {symbol} ---")
 
-    # 1. Fetch candles
+    # Check if this specific symbol already has an open position
+    symbol_positions = [p for p in all_open_positions if p.get("symbol") == symbol]
+    if symbol_positions:
+        logger.info(f"{symbol} already has an active position open. Skipping.")
+        return
+
+    # Fetch candles
     df = fetch_ohlcv(
-        symbol=BINANCE_SYMBOL,
+        symbol=symbol,
         interval=cfg.TIMEFRAME,
         limit=cfg.CANDLE_LIMIT,
         use_testnet=cfg.USE_TESTNET
     )
     if df.empty:
-        logger.warning("No candle data received. Skipping this cycle.")
+        logger.warning(f"No candle data received for {symbol}. Skipping.")
         return
 
-    # 2. Get balance
-    balance = order_mgr.get_balance()
-    if balance <= 0:
-        logger.warning("Balance is 0 or failed to fetch. Ensure valid API keys are configured in .env. Skipping trade cycle.")
-        return
-
-    # 3. Daily loss check
-    risk_mgr.set_balance(balance)
-    if risk_mgr.is_daily_loss_hit(balance):
-        logger.warning("Daily loss limit reached. No new trades today.")
-        telegram.alert_daily_loss_limit(balance, cfg.DAILY_LOSS_LIMIT)
-        return
-
-    # 4. Check open positions
-    open_positions = order_mgr.get_open_positions(BINANCE_SYMBOL)
-    logger.info(f"Open positions: {len(open_positions)}")
-
-    if not risk_mgr.can_open_trade(len(open_positions)):
-        return
-
-    # 5. Generate signal
+    # Generate signal
     signal = generate_signal(df, CONFIG)
-    logger.info(f"Signal: {signal['signal'].upper()} | {signal['reason']}")
+    logger.info(f"{symbol} Signal: {signal['signal'].upper()} | {signal['reason']}")
 
     if signal["signal"] == "none":
-        logger.info("No trade signal this cycle.")
         return
 
-    # 6. Calculate position size
+    # Calculate position size
     qty = risk_mgr.calculate_position_size(
         balance=balance,
         entry=signal["entry"],
         stop_loss=signal["stop_loss"],
         leverage=cfg.LEVERAGE
     )
-    qty = order_mgr.round_quantity(BINANCE_SYMBOL, qty)
+    qty = order_mgr.round_quantity(symbol, qty)
     if qty <= 0:
-        logger.warning("Position size is 0 after precision rounding. Skipping trade.")
+        logger.warning(f"{symbol} Position size is 0 after precision rounding. Skipping trade.")
         return
 
-    # 7. Set leverage
-    order_mgr.set_leverage(BINANCE_SYMBOL, cfg.LEVERAGE)
+    # Set leverage
+    order_mgr.set_leverage(symbol, cfg.LEVERAGE)
 
-    # 8. Place entry order
+    # Place entry order
     side = "BUY" if signal["signal"] == "long" else "SELL"
     exit_side = "SELL" if signal["signal"] == "long" else "BUY"
 
-    logger.info(f"Placing {side} order: qty={qty} | entry≈{signal['entry']} "
+    logger.info(f"Placing {side} order for {symbol}: qty={qty} | entry≈{signal['entry']} "
                 f"| SL={signal['stop_loss']} | TP={signal['take_profit']}")
 
-    entry_result = order_mgr.place_market_order(BINANCE_SYMBOL, side, qty)
+    entry_result = order_mgr.place_market_order(symbol, side, qty)
     if not entry_result.get("orderId"):
-        logger.error("Entry order failed. Aborting.")
+        logger.error(f"Entry order failed for {symbol}. Aborting.")
         return
 
-    # 9. Place SL and TP
-    order_mgr.place_stop_loss(BINANCE_SYMBOL, exit_side, qty, signal["stop_loss"])
-    order_mgr.place_take_profit(BINANCE_SYMBOL, exit_side, qty, signal["take_profit"])
+    # Place SL and TP
+    order_mgr.place_stop_loss(symbol, exit_side, qty, signal["stop_loss"])
+    order_mgr.place_take_profit(symbol, exit_side, qty, signal["take_profit"])
 
-    logger.info(f"Trade opened successfully | ATR={signal['atr']} | RSI={signal['rsi']}")
-    telegram.alert_trade_opened(signal, qty, BINANCE_SYMBOL)
+    logger.info(f"Trade opened successfully for {symbol} | ATR={signal['atr']} | RSI={signal['rsi']}")
+    telegram.alert_trade_opened(signal, qty, symbol)
+
+
+def run_strategy():
+    """Main strategy execution — called every candle close across all symbols."""
+    logger.info(f"{'='*50}")
+    logger.info(f"Running multi-pair strategy @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Pairs monitored: {', '.join(SYMBOLS)}")
+
+    # 1. Get balance
+    balance = order_mgr.get_balance()
+    if balance <= 0:
+        logger.warning("Balance is 0 or failed to fetch. Ensure valid API keys are configured in .env. Skipping trade cycle.")
+        return
+
+    # 2. Daily loss check
+    risk_mgr.set_balance(balance)
+    if risk_mgr.is_daily_loss_hit(balance):
+        logger.warning("Daily loss limit reached. No new trades today.")
+        telegram.alert_daily_loss_limit(balance, cfg.DAILY_LOSS_LIMIT)
+        return
+
+    # 3. Check open positions across all coins
+    all_open_positions = order_mgr.get_open_positions("")
+    logger.info(f"Total open positions across all pairs: {len(all_open_positions)}")
+
+    # 4. Iterate over configured symbols
+    for symbol in SYMBOLS:
+        if not risk_mgr.can_open_trade(len(all_open_positions)):
+            logger.info("Maximum open trade capacity reached for the portfolio.")
+            break
+        run_strategy_for_symbol(symbol, balance, all_open_positions)
+        # Refresh open positions in case a trade was just opened
+        all_open_positions = order_mgr.get_open_positions("")
 
 
 def run_backtest():
     """Run backtest on 500 candles of historical data."""
     from backtest.backtester import Backtester
 
-    logger.info("Starting backtest...")
+    target_symbol = SYMBOLS[0] if SYMBOLS else "BTCUSDT"
+    logger.info(f"Starting backtest for {target_symbol}...")
     df = fetch_ohlcv(
-        symbol=BINANCE_SYMBOL,
+        symbol=target_symbol,
         interval=cfg.TIMEFRAME,
         limit=500,
         use_testnet=False  # Public endpoint — no auth needed for historical data
     )
     if df.empty:
-        logger.error("Could not fetch historical data for backtest.")
+        logger.error(f"Could not fetch historical data for {target_symbol}.")
         return
 
     bt = Backtester(CONFIG, initial_balance=10000.0)
     results = bt.run(df)
 
     print("\n" + "="*50)
-    print("  BACKTEST RESULTS")
+    print(f"  BACKTEST RESULTS ({target_symbol})")
     print("="*50)
     for k, v in results.items():
         print(f"  {k:<25} {v}")
@@ -158,8 +176,8 @@ def run_backtest():
 # ─────────────────────────────────────────────
 
 if __name__ == "__main__":
-    logger.info("🚀 Binance Futures Intraday Bot starting...")
-    logger.info(f"Symbol: {BINANCE_SYMBOL} | Timeframe: {cfg.TIMEFRAME} | Testnet: {cfg.USE_TESTNET}")
+    logger.info("🚀 Binance Futures Intraday Multi-Pair Bot starting...")
+    logger.info(f"Pairs: {', '.join(SYMBOLS)} | Timeframe: {cfg.TIMEFRAME} | Testnet: {cfg.USE_TESTNET}")
 
     if "--backtest" in sys.argv:
         run_backtest()
@@ -171,7 +189,8 @@ if __name__ == "__main__":
     telegram = TelegramNotifier(cfg.TELEGRAM_BOT_TOKEN, cfg.TELEGRAM_CHAT_ID)
 
     # Run immediately on startup
-    telegram.alert_startup(BINANCE_SYMBOL, cfg.TIMEFRAME, cfg.USE_TESTNET)
+    symbols_display = ", ".join(SYMBOLS)
+    telegram.alert_startup(symbols_display, cfg.TIMEFRAME, cfg.USE_TESTNET)
     run_strategy()
 
     # Then schedule every 15 minutes (aligned to candle close)
