@@ -66,7 +66,8 @@ def fetch_p2p_page(
     page: int = 1,
     rows: int = 20,
     pay_types: list = None,
-    merchant_only: bool = True
+    trans_amount: str = None,
+    merchant_only: bool = False
 ) -> list:
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     headers = {
@@ -84,6 +85,9 @@ def fetch_p2p_page(
         "rows": rows,
         "tradeType": trade_type
     }
+    if trans_amount:
+        payload["transAmount"] = str(trans_amount)
+
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=8)
         if resp.status_code == 200:
@@ -94,10 +98,9 @@ def fetch_p2p_page(
 
 
 def monitor_p2p(
-    max_price: float = 102.50,
-    min_purchase: float = 100.0,
-    max_min_limit: float = 15000.0,
-    budget: float = None,
+    max_price: float = 103.00,
+    amount: float = 400.0,
+    max_min_limit: float = 1000.0,
     fiat: str = "INR",
     asset: str = "USDT",
     poll_interval: int = 5,
@@ -109,13 +112,8 @@ def monitor_p2p(
     print("=" * 80)
     print(f"• Target Asset / Fiat:  {asset} / {fiat}")
     print(f"• Target Max Price:     <= {max_price:.2f} {fiat}")
-    print(f"• Tradable Only:        Yes (All restricted KYC/account barriers excluded)")
-    if budget is not None:
-        print(f"• Specific Budget:      ₹{budget:,.0f} (Ad limits must cover this exact amount)")
-    else:
-        print(f"• Purchase Capacity:    Can buy >= ₹{min_purchase:.0f} {fiat}")
-        if max_min_limit is not None:
-            print(f"• Exclude Min Orders:   Merchant min limit must be < {max_min_limit:,.0f} {fiat}")
+    print(f"• Purchase Amount:      ₹{amount:,.0f} {fiat} (Directly Tradable for this budget)")
+    print(f"• Exclude Restricted:   Yes (No extra KYC, Tradable=True, Limits must match)")
     print(f"• Refresh Interval:     Every {poll_interval}s across top {max_pages} pages")
     print(f"• Audio Alerts:         {'Enabled (Windows Beep)' if HAS_WINSOUND else 'Disabled'}")
     print(f"• Telegram Alerts:      {'Enabled' if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID else 'Disabled'}")
@@ -133,7 +131,13 @@ def monitor_p2p(
 
             for p in range(1, max_pages + 1):
                 page_ads = fetch_p2p_page(
-                    asset=asset, fiat=fiat, trade_type="BUY", page=p, rows=20, merchant_only=merchant_only
+                    asset=asset,
+                    fiat=fiat,
+                    trade_type="BUY",
+                    page=p,
+                    rows=20,
+                    trans_amount=str(int(amount)) if amount else None,
+                    merchant_only=merchant_only
                 )
                 if not page_ads:
                     break
@@ -168,18 +172,12 @@ def monitor_p2p(
                 if price > max_price:
                     continue
 
-                # Specific budget check: ad must accept this exact purchase amount
-                if budget is not None:
-                    if min_limit > budget or max_limit < budget:
+                # Budget must fit within merchant's limits: min_limit <= amount <= max_limit
+                if amount is not None:
+                    if min_limit > amount or max_limit < amount:
                         continue
-                else:
-                    # Must allow purchasing >= min_purchase
-                    if max_limit < min_purchase:
-                        continue
-
-                    # Exclude orders where required minimum is 15,000 RS or more
-                    if max_min_limit is not None and min_limit >= max_min_limit:
-                        continue
+                elif max_min_limit is not None and min_limit >= max_min_limit:
+                    continue
 
                 matches.append(item)
 
@@ -244,10 +242,9 @@ def monitor_p2p(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Continuous Binance P2P Buy Order Monitor")
-    parser.add_argument("--max-price", type=float, default=102.50, help="Maximum price (default 102.50)")
-    parser.add_argument("--min-purchase", type=float, default=100.0, help="Must allow purchasing at least this amount (default 100)")
-    parser.add_argument("--max-min-limit", type=float, default=15000.0, help="Exclude merchants whose minimum required order is >= this amount (default 15000)")
-    parser.add_argument("--budget", type=float, default=None, help="Filter ads where limits cover your exact purchase budget (e.g. 500)")
+    parser.add_argument("--amount", type=float, default=400.0, help="Your purchase amount in INR (e.g. 200, 400, 500). Guarantees the ad accepts this order.")
+    parser.add_argument("--max-price", type=float, default=103.00, help="Maximum price (default 103.00)")
+    parser.add_argument("--max-min-limit", type=float, default=1000.0, help="Exclude merchants requiring >= this minimum limit (default 1000)")
     parser.add_argument("--interval", type=int, default=5, help="Seconds between polls (default 5)")
     parser.add_argument("--fiat", default="INR", help="Fiat currency (default INR)")
     parser.add_argument("--asset", default="USDT", help="Asset (default USDT)")
@@ -257,9 +254,8 @@ if __name__ == "__main__":
 
     monitor_p2p(
         max_price=args.max_price,
-        min_purchase=args.min_purchase,
+        amount=args.amount,
         max_min_limit=args.max_min_limit,
-        budget=args.budget,
         fiat=args.fiat,
         asset=args.asset,
         poll_interval=args.interval,
