@@ -119,11 +119,19 @@ if __name__ == "__main__":
         rows=args.limit * 2
     )
 
-    # Filter out orders where minimum limit is >= max_min_limit
-    if args.max_min_limit is not None:
-        ads = [
-            a for a in ads 
-            if float(a.get("adv", {}).get("minSingleTransAmount", 0)) < args.max_min_limit
-        ]
+    # Filter out orders where minimum limit is >= max_min_limit, and exclude restricted KYC requirements
+    filtered_ads = []
+    for a in ads:
+        adv = a.get("adv", {})
+        min_limit = float(adv.get("minSingleTransAmount", 0))
+        if args.max_min_limit is not None and min_limit >= args.max_min_limit:
+            continue
+        # Exclude ads requiring additional KYC (causes "Restricted" status)
+        if adv.get("takerAdditionalKycRequired", 0) != 0:
+            continue
+        # Exclude counterparty barriers
+        if adv.get("buyerRegDaysLimit") or adv.get("buyerBtcPositionLimit") or adv.get("buyerKycLimit"):
+            continue
+        filtered_ads.append(a)
 
-    display_p2p_ads(ads[:args.limit], args.asset, args.fiat, args.side, args.amount)
+    display_p2p_ads(filtered_ads[:args.limit], args.asset, args.fiat, args.side, args.amount)

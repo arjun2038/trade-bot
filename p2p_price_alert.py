@@ -152,6 +152,14 @@ def monitor_p2p(
                 if adv.get("isTradable") is False or adv.get("abnormalStatusList"):
                     continue
 
+                # Exclude ads requiring additional KYC (Causes the "Restricted" button in Binance!)
+                if adv.get("takerAdditionalKycRequired", 0) != 0:
+                    continue
+
+                # Exclude counterparty barriers (minimum account age, minimum BTC holding requirements)
+                if adv.get("buyerRegDaysLimit") or adv.get("buyerBtcPositionLimit") or adv.get("buyerKycLimit"):
+                    continue
+
                 # Price condition: <= max_price
                 if price > max_price:
                     continue
