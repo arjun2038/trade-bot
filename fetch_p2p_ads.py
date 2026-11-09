@@ -23,7 +23,7 @@ def fetch_p2p_advertisements(
     trans_amount: str = None,
     pay_types: list = None,
     rows: int = 10,
-    merchant_only: bool = False
+    merchant_only: bool = True
 ) -> list:
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     headers = {

@@ -67,7 +67,7 @@ def fetch_p2p_page(
     rows: int = 20,
     pay_types: list = None,
     trans_amount: str = None,
-    merchant_only: bool = False
+    merchant_only: bool = True
 ) -> list:
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     headers = {
@@ -98,22 +98,23 @@ def fetch_p2p_page(
 
 
 def monitor_p2p(
-    max_price: float = 103.00,
+    max_price: float = 104.50,
     amount: float = 400.0,
     max_min_limit: float = 1000.0,
     fiat: str = "INR",
     asset: str = "USDT",
     poll_interval: int = 5,
     max_pages: int = 3,
-    merchant_only: bool = False
+    merchant_only: bool = True
 ):
     print("=" * 80)
     print("          🚀 BINANCE P2P REAL-TIME PRICE MONITOR STARTED")
     print("=" * 80)
     print(f"• Target Asset / Fiat:  {asset} / {fiat}")
     print(f"• Target Max Price:     <= {max_price:.2f} {fiat}")
-    print(f"• Purchase Amount:      ₹{amount:,.0f} {fiat} (Directly Tradable for this budget)")
-    print(f"• Exclude Restricted:   Yes (No extra KYC, Tradable=True, Limits must match)")
+    print(f"• Purchase Amount:      ₹{amount:,.0f} {fiat} (Limits must cover this)")
+    print(f"• Strict Anti-Restrict: Excludes 0.08 BTC position requirement (Verified Merchants only)")
+    print(f"• Extra KYC Exclusion:  Excludes ads requiring additional document upload")
     print(f"• Refresh Interval:     Every {poll_interval}s across top {max_pages} pages")
     print(f"• Audio Alerts:         {'Enabled (Windows Beep)' if HAS_WINSOUND else 'Disabled'}")
     print(f"• Telegram Alerts:      {'Enabled' if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID else 'Disabled'}")
@@ -260,6 +261,6 @@ if __name__ == "__main__":
         asset=args.asset,
         poll_interval=args.interval,
         max_pages=args.pages,
-        merchant_only=False
+        merchant_only=True
     )
 
