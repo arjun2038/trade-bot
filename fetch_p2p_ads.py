@@ -89,7 +89,10 @@ def display_p2p_ads(ads: list, asset: str, fiat: str, trade_type: str, amount_fi
         finish_rate = advertiser.get("monthFinishRate", 0) * 100
         rate_str = f"{finish_rate:.1f}% ({orders_count} orders)"
 
+        adv_no = adv.get("advNo")
+        direct_url = f"https://c2c.binance.com/en/fiatOrder?advNo={adv_no}"
         print(f"{idx:<3} | {name:<18} | {price:<12} | {limits_str:<26} | {methods_str:<15} | {rate_str}")
+        print(f"    👉 Direct Buy Link: {direct_url}")
 
     print("=" * 95 + "\n")
 

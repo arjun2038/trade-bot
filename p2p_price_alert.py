@@ -65,7 +65,8 @@ def fetch_p2p_page(
     trade_type: str = "BUY",
     page: int = 1,
     rows: int = 20,
-    pay_types: list = None
+    pay_types: list = None,
+    merchant_only: bool = True
 ) -> list:
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     headers = {
@@ -76,10 +77,10 @@ def fetch_p2p_page(
     payload = {
         "asset": asset,
         "fiat": fiat,
-        "merchantCheck": False,
+        "merchantCheck": merchant_only,
         "page": page,
         "payTypes": pay_types or [],
-        "publisherType": None,
+        "publisherType": "merchant" if merchant_only else None,
         "rows": rows,
         "tradeType": trade_type
     }
@@ -99,7 +100,8 @@ def monitor_p2p(
     fiat: str = "INR",
     asset: str = "USDT",
     poll_interval: int = 5,
-    max_pages: int = 3
+    max_pages: int = 3,
+    merchant_only: bool = True
 ):
     print("=" * 80)
     print("          🚀 BINANCE P2P REAL-TIME PRICE MONITOR STARTED")
@@ -109,6 +111,7 @@ def monitor_p2p(
     print(f"• Purchase Capacity:    Can buy >= {min_purchase:.0f} {fiat}")
     if max_min_limit is not None:
         print(f"• Exclude Min Orders:   Merchant min limit must be < {max_min_limit:,.0f} {fiat} (>= {max_min_limit:,.0f} ignored)")
+    print(f"• Exclude Restricted:   {'Yes (Verified PRO Merchants Only - No Restrictions)' if merchant_only else 'No'}")
     print(f"• Refresh Interval:     Every {poll_interval}s across top {max_pages} pages")
     print(f"• Audio Alerts:         {'Enabled (Windows Beep)' if HAS_WINSOUND else 'Disabled'}")
     print(f"• Telegram Alerts:      {'Enabled' if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID else 'Disabled'}")
@@ -125,7 +128,9 @@ def monitor_p2p(
             all_ads = []
 
             for p in range(1, max_pages + 1):
-                page_ads = fetch_p2p_page(asset=asset, fiat=fiat, trade_type="BUY", page=p, rows=20)
+                page_ads = fetch_p2p_page(
+                    asset=asset, fiat=fiat, trade_type="BUY", page=p, rows=20, merchant_only=merchant_only
+                )
                 if not page_ads:
                     break
                 all_ads.extend(page_ads)
@@ -142,6 +147,10 @@ def monitor_p2p(
 
                 if price < cheapest_in_market:
                     cheapest_in_market = price
+
+                # Exclude non-tradable or abnormal status
+                if adv.get("isTradable") is False or adv.get("abnormalStatusList"):
+                    continue
 
                 # Price condition: <= max_price
                 if price > max_price:
@@ -160,7 +169,7 @@ def monitor_p2p(
             # Display progress status
             if not matches:
                 sys.stdout.write(
-                    f"\r[{now_str}] Check #{scan_count}: No ad <= {max_price:.2f} {fiat} | Cheapest live: {cheapest_in_market:.2f} {fiat} | Scanned {len(all_ads)} ads"
+                    f"\r[{now_str}] Check #{scan_count}: No active ad <= {max_price:.2f} {fiat} | Cheapest verified: {cheapest_in_market:.2f} {fiat} | Scanned {len(all_ads)} ads"
                 )
                 sys.stdout.flush()
             else:
@@ -175,17 +184,24 @@ def monitor_p2p(
                     min_lim = float(adv.get("minSingleTransAmount", 0))
                     max_lim = float(adv.get("maxSingleTransAmount", 0))
                     nick = advertiser.get("nickName", "Unknown")
+                    user_no = advertiser.get("userNo", "")
                     orders = advertiser.get("monthOrderCount", 0)
                     finish_rate = advertiser.get("monthFinishRate", 0) * 100
                     methods = [x.get("tradeMethodName") for x in adv.get("tradeMethods", []) if x.get("tradeMethodName")]
                     methods_str = ", ".join(methods[:3])
 
+                    direct_buy_url = f"https://c2c.binance.com/en/fiatOrder?advNo={adv_no}"
+                    app_ad_url = f"https://app.binance.com/en/p2p/advertisementDetail?advNo={adv_no}"
+                    profile_url = f"https://p2p.binance.com/en/advertiserDetail?userNo={user_no}"
+
                     print("  " + "-" * 75)
                     print(f"  • Price:         {price:.2f} {fiat}")
-                    print(f"  • Merchant:      {nick} (Completion: {finish_rate:.1f}% | {orders} orders)")
+                    print(f"  • Merchant:      {nick} (Verified Merchant ⭐ | Completion: {finish_rate:.1f}% | {orders} orders)")
                     print(f"  • Order Limits:  ₹{min_lim:,.0f} to ₹{max_lim:,.0f}")
                     print(f"  • Pay Methods:   {methods_str}")
-                    print(f"  • Trade URL:     https://p2p.binance.com/en/trade/all-payments/{asset}?fiat={fiat}")
+                    print(f"  • 🔗 DIRECT BUY:  {direct_buy_url}")
+                    print(f"  • 📱 APP LINK:   {app_ad_url}")
+                    print(f"  • 👤 PROFILE:    {profile_url}")
 
                     # Notify Telegram if new
                     if adv_no not in seen_adv_nos:
@@ -196,7 +212,8 @@ def monitor_p2p(
                             f"*Merchant:* {nick} ({finish_rate:.1f}%)\n"
                             f"*Limits:* ₹{min_lim:,.0f} - ₹{max_lim:,.0f}\n"
                             f"*Methods:* {methods_str}\n\n"
-                            f"[Open Binance P2P](https://p2p.binance.com/en/trade/all-payments/{asset}?fiat={fiat})"
+                            f"👉 [DIRECT BUY LINK]({direct_buy_url})\n"
+                            f"👉 [OPEN IN BINANCE APP]({app_ad_url})"
                         )
                         send_telegram_alert(tele_msg)
 
@@ -214,6 +231,7 @@ if __name__ == "__main__":
     parser.add_argument("--min-purchase", type=float, default=100.0, help="Must allow purchasing at least this amount (default 100)")
     parser.add_argument("--max-min-limit", type=float, default=15000.0, help="Exclude merchants whose minimum required order is >= this amount (default 15000)")
     parser.add_argument("--interval", type=int, default=5, help="Seconds between polls (default 5)")
+    parser.add_argument("--include-unverified", action="store_true", help="Include non-merchant individual ads (which may show as Restricted)")
     parser.add_argument("--fiat", default="INR", help="Fiat currency (default INR)")
     parser.add_argument("--asset", default="USDT", help="Asset (default USDT)")
     parser.add_argument("--pages", type=int, default=3, help="Pages to scan (default 3)")
@@ -227,6 +245,7 @@ if __name__ == "__main__":
         fiat=args.fiat,
         asset=args.asset,
         poll_interval=args.interval,
-        max_pages=args.pages
+        max_pages=args.pages,
+        merchant_only=not args.include_unverified
     )
 
