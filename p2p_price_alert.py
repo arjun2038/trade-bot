@@ -95,7 +95,7 @@ def fetch_p2p_page(
 def monitor_p2p(
     max_price: float = 102.50,
     min_purchase: float = 100.0,
-    max_min_limit: float = None,
+    max_min_limit: float = 15000.0,
     fiat: str = "INR",
     asset: str = "USDT",
     poll_interval: int = 5,
@@ -107,8 +107,8 @@ def monitor_p2p(
     print(f"• Target Asset / Fiat:  {asset} / {fiat}")
     print(f"• Target Max Price:     <= {max_price:.2f} {fiat}")
     print(f"• Purchase Capacity:    Can buy >= {min_purchase:.0f} {fiat}")
-    if max_min_limit:
-        print(f"• Max Minimum Limit:    Merchant min limit <= {max_min_limit:.0f} {fiat}")
+    if max_min_limit is not None:
+        print(f"• Exclude Min Orders:   Merchant min limit must be < {max_min_limit:,.0f} {fiat} (>= {max_min_limit:,.0f} ignored)")
     print(f"• Refresh Interval:     Every {poll_interval}s across top {max_pages} pages")
     print(f"• Audio Alerts:         {'Enabled (Windows Beep)' if HAS_WINSOUND else 'Disabled'}")
     print(f"• Telegram Alerts:      {'Enabled' if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID else 'Disabled'}")
@@ -151,8 +151,8 @@ def monitor_p2p(
                 if max_limit < min_purchase:
                     continue
 
-                # Optional: merchant's minimum limit shouldn't exceed what the user can enter
-                if max_min_limit is not None and min_limit > max_min_limit:
+                # Exclude orders where required minimum is 15,000 RS or more
+                if max_min_limit is not None and min_limit >= max_min_limit:
                     continue
 
                 matches.append(item)
@@ -212,7 +212,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Continuous Binance P2P Buy Order Monitor")
     parser.add_argument("--max-price", type=float, default=102.50, help="Maximum price (default 102.50)")
     parser.add_argument("--min-purchase", type=float, default=100.0, help="Must allow purchasing at least this amount (default 100)")
-    parser.add_argument("--max-min-limit", type=float, default=None, help="Filter out merchants whose minimum limit exceeds this (e.g. 5000)")
+    parser.add_argument("--max-min-limit", type=float, default=15000.0, help="Exclude merchants whose minimum required order is >= this amount (default 15000)")
     parser.add_argument("--interval", type=int, default=5, help="Seconds between polls (default 5)")
     parser.add_argument("--fiat", default="INR", help="Fiat currency (default INR)")
     parser.add_argument("--asset", default="USDT", help="Asset (default USDT)")
@@ -229,3 +229,4 @@ if __name__ == "__main__":
         poll_interval=args.interval,
         max_pages=args.pages
     )
+

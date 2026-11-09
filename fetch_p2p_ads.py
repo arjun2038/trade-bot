@@ -101,6 +101,7 @@ if __name__ == "__main__":
     parser.add_argument("--side", default="BUY", choices=["BUY", "SELL"], help="Trade side")
     parser.add_argument("--amount", default=None, help="Specific transaction amount to filter")
     parser.add_argument("--pay", default=None, help="Payment method (e.g. UPI, IMPS, Paytm)")
+    parser.add_argument("--max-min-limit", type=float, default=15000.0, help="Exclude merchants requiring >= this minimum order (default 15000)")
     parser.add_argument("--limit", type=int, default=10, help="Number of ads to display")
 
     args = parser.parse_args()
@@ -112,6 +113,14 @@ if __name__ == "__main__":
         trade_type=args.side,
         trans_amount=args.amount,
         pay_types=pay_list,
-        rows=args.limit
+        rows=args.limit * 2
     )
-    display_p2p_ads(ads, args.asset, args.fiat, args.side, args.amount)
+
+    # Filter out orders where minimum limit is >= max_min_limit
+    if args.max_min_limit is not None:
+        ads = [
+            a for a in ads 
+            if float(a.get("adv", {}).get("minSingleTransAmount", 0)) < args.max_min_limit
+        ]
+
+    display_p2p_ads(ads[:args.limit], args.asset, args.fiat, args.side, args.amount)
