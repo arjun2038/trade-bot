@@ -25,8 +25,9 @@ recent_trades.sort(key=lambda x: x.get('time', 0), reverse=True)
 # 3. Fetch recent account income (realized PnL, funding fees, trading fees)
 income_stream = om._get('/fapi/v1/income', {'limit': 10})
 
-# 4. Open Orders
+# 4. Open Orders (Regular & Algo)
 open_orders = om._get('/fapi/v1/openOrders', {})
+algo_orders = om._get('/fapi/v1/openAlgoOrders', {})
 
 print("\n" + "=" * 65)
 print("             COMPLETE BINANCE FUTURES STATUS")
@@ -52,12 +53,19 @@ if active_positions:
 else:
     print("No open positions on any asset.")
 
-print("\n--- [2] UNFILLED OPEN ORDERS ---")
+print("\n--- [2] UNFILLED OPEN & CONDITIONAL (SL/TP) ORDERS ---")
+has_orders = False
 if isinstance(open_orders, list) and open_orders:
+    has_orders = True
     for o in open_orders:
         dt = datetime.fromtimestamp(o.get('time', 0) / 1000)
         print(f"• ID: {o.get('orderId')} | {o.get('symbol')} | {o.get('side')} {o.get('origQty')} @ ${o.get('price')} ({o.get('type')}) | Placed: {dt.strftime('%H:%M:%S')}")
-else:
+if isinstance(algo_orders, list) and algo_orders:
+    has_orders = True
+    for a in algo_orders:
+        dt = datetime.fromtimestamp(a.get('createTime', 0) / 1000)
+        print(f"• ALGO ID: {a.get('algoId')} | {a.get('symbol')} | {a.get('orderType')} | {a.get('side')} {a.get('quantity')} | Trigger: ${float(a.get('triggerPrice')):.4f} | Placed: {dt.strftime('%H:%M:%S')}")
+if not has_orders:
     print("No active unfilled limit or trigger orders.")
 
 print("\n--- [3] RECENT EXECUTED TRADES ---")

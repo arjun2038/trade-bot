@@ -172,6 +172,38 @@ def run_backtest():
 
 
 # ─────────────────────────────────────────────
+#  Candle Synchronization Helpers
+# ─────────────────────────────────────────────
+
+def get_interval_seconds(interval_str: str) -> int:
+    """Parse timeframe string (e.g. '15m', '1h') into total seconds."""
+    if interval_str.endswith("m"):
+        return int(interval_str.replace("m", "")) * 60
+    elif interval_str.endswith("h"):
+        return int(interval_str.replace("h", "")) * 3600
+    return 900
+
+
+def sleep_until_next_candle(interval_str: str = "15m", buffer_sec: int = 5) -> float:
+    """
+    Sleeps until the next candle boundary (:00, :15, :30, :45) plus a buffer (in seconds).
+    Ensures that candle data on Binance is fully finalized before evaluating signals.
+    """
+    candle_seconds = get_interval_seconds(interval_str)
+    now_ts = time.time()
+    next_boundary = ((int(now_ts) // candle_seconds) + 1) * candle_seconds + buffer_sec
+    sleep_sec = next_boundary - now_ts
+    if sleep_sec <= 0:
+        sleep_sec += candle_seconds
+
+    next_time_str = datetime.fromtimestamp(next_boundary).strftime('%H:%M:%S')
+    mins, secs = int(sleep_sec // 60), int(sleep_sec % 60)
+    logger.info(f"⏳ Waiting {mins}m {secs}s for next candle close @ {next_time_str}...")
+    time.sleep(sleep_sec)
+    return sleep_sec
+
+
+# ─────────────────────────────────────────────
 #  Init
 # ─────────────────────────────────────────────
 
@@ -188,19 +220,29 @@ if __name__ == "__main__":
     risk_mgr = RiskManager(CONFIG)
     telegram = TelegramNotifier(cfg.TELEGRAM_BOT_TOKEN, cfg.TELEGRAM_CHAT_ID)
 
-    # Run immediately on startup
     symbols_display = ", ".join(SYMBOLS)
     telegram.alert_startup(symbols_display, cfg.TIMEFRAME, cfg.USE_TESTNET)
-    run_strategy()
 
-    # Then schedule every 15 minutes (aligned to candle close)
-    schedule.every(15).minutes.do(run_strategy)
+    # Check if startup is fresh (within 60 seconds of candle close)
+    candle_sec = get_interval_seconds(cfg.TIMEFRAME)
+    elapsed_into_candle = int(time.time()) % candle_sec
 
-    logger.info("Bot running. Press Ctrl+C to stop.")
+    if elapsed_into_candle <= 60:
+        logger.info(f"⚡ Fresh candle detected ({elapsed_into_candle}s into new candle). Running immediately...")
+        run_strategy()
+    else:
+        mins_late = elapsed_into_candle // 60
+        secs_late = elapsed_into_candle % 60
+        logger.info(
+            f"⚠️ Bot started mid-candle ({mins_late}m {secs_late}s late). "
+            f"Waiting for next candle close to prevent entry slippage."
+        )
+
+    logger.info("Bot running in candle-aligned mode. Press Ctrl+C to stop.")
     try:
         while True:
-            schedule.run_pending()
-            time.sleep(30)
+            sleep_until_next_candle(cfg.TIMEFRAME, buffer_sec=5)
+            run_strategy()
     except KeyboardInterrupt:
         logger.info("Bot stopped by user.")
 
