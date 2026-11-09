@@ -97,21 +97,25 @@ def monitor_p2p(
     max_price: float = 102.50,
     min_purchase: float = 100.0,
     max_min_limit: float = 15000.0,
+    budget: float = None,
     fiat: str = "INR",
     asset: str = "USDT",
     poll_interval: int = 5,
     max_pages: int = 3,
-    merchant_only: bool = True
+    merchant_only: bool = False
 ):
     print("=" * 80)
     print("          🚀 BINANCE P2P REAL-TIME PRICE MONITOR STARTED")
     print("=" * 80)
     print(f"• Target Asset / Fiat:  {asset} / {fiat}")
     print(f"• Target Max Price:     <= {max_price:.2f} {fiat}")
-    print(f"• Purchase Capacity:    Can buy >= {min_purchase:.0f} {fiat}")
-    if max_min_limit is not None:
-        print(f"• Exclude Min Orders:   Merchant min limit must be < {max_min_limit:,.0f} {fiat} (>= {max_min_limit:,.0f} ignored)")
-    print(f"• Exclude Restricted:   {'Yes (Verified PRO Merchants Only - No Restrictions)' if merchant_only else 'No'}")
+    print(f"• Tradable Only:        Yes (All restricted KYC/account barriers excluded)")
+    if budget is not None:
+        print(f"• Specific Budget:      ₹{budget:,.0f} (Ad limits must cover this exact amount)")
+    else:
+        print(f"• Purchase Capacity:    Can buy >= ₹{min_purchase:.0f} {fiat}")
+        if max_min_limit is not None:
+            print(f"• Exclude Min Orders:   Merchant min limit must be < {max_min_limit:,.0f} {fiat}")
     print(f"• Refresh Interval:     Every {poll_interval}s across top {max_pages} pages")
     print(f"• Audio Alerts:         {'Enabled (Windows Beep)' if HAS_WINSOUND else 'Disabled'}")
     print(f"• Telegram Alerts:      {'Enabled' if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID else 'Disabled'}")
@@ -164,13 +168,18 @@ def monitor_p2p(
                 if price > max_price:
                     continue
 
-                # Must allow purchasing >= min_purchase (i.e. maximum transaction limit is at least min_purchase)
-                if max_limit < min_purchase:
-                    continue
+                # Specific budget check: ad must accept this exact purchase amount
+                if budget is not None:
+                    if min_limit > budget or max_limit < budget:
+                        continue
+                else:
+                    # Must allow purchasing >= min_purchase
+                    if max_limit < min_purchase:
+                        continue
 
-                # Exclude orders where required minimum is 15,000 RS or more
-                if max_min_limit is not None and min_limit >= max_min_limit:
-                    continue
+                    # Exclude orders where required minimum is 15,000 RS or more
+                    if max_min_limit is not None and min_limit >= max_min_limit:
+                        continue
 
                 matches.append(item)
 
@@ -238,8 +247,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-price", type=float, default=102.50, help="Maximum price (default 102.50)")
     parser.add_argument("--min-purchase", type=float, default=100.0, help="Must allow purchasing at least this amount (default 100)")
     parser.add_argument("--max-min-limit", type=float, default=15000.0, help="Exclude merchants whose minimum required order is >= this amount (default 15000)")
+    parser.add_argument("--budget", type=float, default=None, help="Filter ads where limits cover your exact purchase budget (e.g. 500)")
     parser.add_argument("--interval", type=int, default=5, help="Seconds between polls (default 5)")
-    parser.add_argument("--include-unverified", action="store_true", help="Include non-merchant individual ads (which may show as Restricted)")
     parser.add_argument("--fiat", default="INR", help="Fiat currency (default INR)")
     parser.add_argument("--asset", default="USDT", help="Asset (default USDT)")
     parser.add_argument("--pages", type=int, default=3, help="Pages to scan (default 3)")
@@ -250,10 +259,11 @@ if __name__ == "__main__":
         max_price=args.max_price,
         min_purchase=args.min_purchase,
         max_min_limit=args.max_min_limit,
+        budget=args.budget,
         fiat=args.fiat,
         asset=args.asset,
         poll_interval=args.interval,
         max_pages=args.pages,
-        merchant_only=not args.include_unverified
+        merchant_only=False
     )
 
