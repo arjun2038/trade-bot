@@ -117,6 +117,12 @@ def run_strategy():
     logger.info(f"Running multi-pair strategy @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Pairs monitored: {', '.join(SYMBOLS)}")
 
+    # 0. OCO Reconciliation: Cancel any lingering orphan SL/TP orders from closed positions
+    cancelled = order_mgr.reconcile_orphan_orders()
+    if cancelled and telegram:
+        for c in cancelled:
+            telegram.alert_order_reconciled(c["symbol"], c["type"], c["orderId"])
+
     # 1. Get balance
     balance = order_mgr.get_balance()
     if balance <= 0:
@@ -184,9 +190,16 @@ def get_interval_seconds(interval_str: str) -> int:
     return 900
 
 
-def sleep_until_next_candle(interval_str: str = "15m", buffer_sec: int = 5) -> float:
+def sleep_until_next_candle(
+    order_manager=None,
+    telegram_notifier=None,
+    interval_str: str = "15m",
+    buffer_sec: int = 5,
+    poll_sec: int = 10
+) -> float:
     """
     Sleeps until the next candle boundary (:00, :15, :30, :45) plus a buffer (in seconds).
+    Actively checks for and cancels orphan SL/TP orders (OCO watchdog) every poll_sec seconds.
     Ensures that candle data on Binance is fully finalized before evaluating signals.
     """
     candle_seconds = get_interval_seconds(interval_str)
@@ -198,8 +211,30 @@ def sleep_until_next_candle(interval_str: str = "15m", buffer_sec: int = 5) -> f
 
     next_time_str = datetime.fromtimestamp(next_boundary).strftime('%H:%M:%S')
     mins, secs = int(sleep_sec // 60), int(sleep_sec % 60)
-    logger.info(f"⏳ Waiting {mins}m {secs}s for next candle close @ {next_time_str}...")
-    time.sleep(sleep_sec)
+    logger.info(f"⏳ Waiting {mins}m {secs}s for next candle close @ {next_time_str} (OCO Watchdog active)...")
+
+    while True:
+        now = time.time()
+        remaining = next_boundary - now
+        if remaining <= 0:
+            break
+
+        step = min(float(poll_sec), remaining)
+        time.sleep(step)
+
+        if next_boundary - time.time() <= 0:
+            break
+
+        # OCO Watchdog: check if any position closed and cancel lingering opposite orders
+        if order_manager:
+            try:
+                cancelled = order_manager.reconcile_orphan_orders()
+                if cancelled and telegram_notifier:
+                    for c in cancelled:
+                        telegram_notifier.alert_order_reconciled(c["symbol"], c["type"], c["orderId"])
+            except Exception as e:
+                logger.debug(f"Watchdog reconcile check error: {e}")
+
     return sleep_sec
 
 
@@ -241,7 +276,7 @@ if __name__ == "__main__":
     logger.info("Bot running in candle-aligned mode. Press Ctrl+C to stop.")
     try:
         while True:
-            sleep_until_next_candle(cfg.TIMEFRAME, buffer_sec=5)
+            sleep_until_next_candle(order_mgr, telegram, cfg.TIMEFRAME, buffer_sec=5, poll_sec=10)
             run_strategy()
     except KeyboardInterrupt:
         logger.info("Bot stopped by user.")

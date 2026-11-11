@@ -68,6 +68,16 @@ class TelegramNotifier:
         )
         self.send(msg)
 
+    def alert_order_reconciled(self, symbol: str, order_type: str, order_id: str | int):
+        msg = (
+            f"🧹 *OCO RECONCILIATION*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📌 Symbol:    `{symbol}`\n"
+            f"🗑️ Cancelled: `{order_type}` (#{order_id})\n"
+            f"ℹ️ _Position closed; cancelled lingering exit order._"
+        )
+        self.send(msg)
+
     def alert_error(self, error: str):
         self.send(f"❌ *Bot Error*\n`{error}`")
 

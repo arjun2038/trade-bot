@@ -228,14 +228,75 @@ class OrderManager:
             logger.error(f"Take profit failed: {result}")
         return result
 
-    def cancel_all_orders(self, symbol: str) -> bool:
-        """Cancel all open standard and algo orders for a symbol."""
+    def cancel_algo_order(self, symbol: str, algo_id: int | str) -> dict:
+        """Cancel a specific algo order (e.g. SL or TP) via DELETE /fapi/v1/algoOrder."""
+        return self._delete("/fapi/v1/algoOrder", {"symbol": symbol, "algoId": algo_id})
+
+    def cancel_all_orders(self, symbol: str = "") -> bool:
+        """Cancel all open standard and algo orders for a symbol (or all symbols if empty)."""
         # Cancel regular orders
-        self._delete("/fapi/v1/allOpenOrders", {"symbol": symbol})
+        params = {"symbol": symbol} if symbol else {}
+        self._delete("/fapi/v1/allOpenOrders", params)
+
         # Cancel algo orders (conditional SL/TP)
-        self._delete("/fapi/v1/algoOpenOrders", {"symbol": symbol})
-        logger.info(f"Cancelled all open orders and algo orders for {symbol}")
+        algo_orders = self._get("/fapi/v1/openAlgoOrders", params)
+        if isinstance(algo_orders, list):
+            for ao in algo_orders:
+                sym = ao.get("symbol")
+                aid = ao.get("algoId")
+                if aid and (not symbol or sym == symbol):
+                    self.cancel_algo_order(sym, aid)
+                    logger.info(f"Cancelled open algo order {aid} ({ao.get('orderType', 'ALGO')}) for {sym}")
+        logger.info(f"Cancelled all open orders and algo orders for {symbol or 'ALL'}")
         return True
+
+    def reconcile_orphan_orders(self) -> list:
+        """
+        OCO / Bracket Reconciler:
+        Checks if any symbol has open SL/TP orders while its position is already closed (positionAmt == 0).
+        Automatically cancels any such orphan orders.
+        """
+        # 1. Fetch positions for all symbols
+        pos_data = self._get("/fapi/v2/positionRisk", {})
+        active_symbols = set()
+        if isinstance(pos_data, list):
+            for p in pos_data:
+                if float(p.get("positionAmt", 0)) != 0:
+                    active_symbols.add(p.get("symbol"))
+
+        cancelled = []
+
+        # 2. Check open algo orders (Take-Profit & Stop-Loss)
+        algo_orders = self._get("/fapi/v1/openAlgoOrders", {})
+        if isinstance(algo_orders, list):
+            for ao in algo_orders:
+                sym = ao.get("symbol")
+                aid = ao.get("algoId")
+                order_type = ao.get("orderType", "ALGO")
+                if sym not in active_symbols and aid:
+                    self.cancel_algo_order(sym, aid)
+                    logger.info(
+                        f"[OCO Reconciler] Position closed for {sym}! "
+                        f"Auto-cancelled lingering {order_type} algo order #{aid}"
+                    )
+                    cancelled.append({"symbol": sym, "orderId": aid, "type": order_type})
+
+        # 3. Check open standard orders
+        open_orders = self._get("/fapi/v1/openOrders", {})
+        if isinstance(open_orders, list):
+            for oo in open_orders:
+                sym = oo.get("symbol")
+                oid = oo.get("orderId")
+                order_type = oo.get("type", "LIMIT")
+                if sym not in active_symbols and oid:
+                    self._delete("/fapi/v1/order", {"symbol": sym, "orderId": oid})
+                    logger.info(
+                        f"[OCO Reconciler] Position closed for {sym}! "
+                        f"Auto-cancelled lingering standard order #{oid}"
+                    )
+                    cancelled.append({"symbol": sym, "orderId": oid, "type": order_type})
+
+        return cancelled
 
     def get_open_positions(self, symbol: str) -> list:
         """Get open positions for a symbol. Returns list of positions with non-zero qty."""
