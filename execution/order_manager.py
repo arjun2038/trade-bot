@@ -189,7 +189,7 @@ class OrderManager:
             "type": "STOP_MARKET",
             "quantity": quantity,
             "triggerPrice": stop_price,
-            "workingType": "MARK_PRICE",
+            "workingType": "MARK_PRICE",  # Protect SL against flash-wick stop-hunts
             "reduceOnly": "true",
         }
         result = self._post("/fapi/v1/algoOrder", params)
@@ -217,7 +217,7 @@ class OrderManager:
             "type": "TAKE_PROFIT_MARKET",
             "quantity": quantity,
             "triggerPrice": stop_price,
-            "workingType": "MARK_PRICE",
+            "workingType": "CONTRACT_PRICE",  # Trigger on actual last price spikes; SL keeps MARK_PRICE
             "reduceOnly": "true",
         }
         result = self._post("/fapi/v1/algoOrder", params)
