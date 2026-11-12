@@ -38,9 +38,10 @@ RSI_PERIOD = 14
 ATR_PERIOD = 14
 VOLUME_MA_PERIOD = 20
 
-# --- Risk/Reward ---
+# --- Risk/Reward & Volatility Filters ---
 ATR_SL_MULTIPLIER = 1.0   # Stop loss = 1x ATR
 ATR_TP_MULTIPLIER = 2.0   # Take profit = 2x ATR
+MIN_ATR_PCT = float(os.getenv("MIN_ATR_PCT", 0.5))  # Min ATR % of price to avoid low-vol fee drag
 
 # --- Telegram Alerts ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")

@@ -102,6 +102,13 @@ def generate_signal(df: pd.DataFrame, cfg: dict) -> dict:
 
     entry = curr["close"]
     atr_val = curr["atr"]
+    atr_pct = (atr_val / entry * 100) if entry > 0 and pd.notna(atr_val) else 0.0
+    min_atr_pct = cfg.get("MIN_ATR_PCT", 0.0)
+    if atr_pct < min_atr_pct:
+        return _no_signal(
+            f"Low volatility chop (ATR={atr_pct:.2f}% < {min_atr_pct:.2f}% min)"
+        )
+
     sl_dist = atr_val * cfg["ATR_SL_MULTIPLIER"]
     tp_dist = atr_val * cfg["ATR_TP_MULTIPLIER"]
 
