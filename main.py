@@ -18,6 +18,7 @@ from data.fetcher import fetch_ohlcv
 from strategy.ema_rsi_atr import generate_signal
 from execution.order_manager import OrderManager
 from risk.risk_manager import RiskManager
+from research.research_engine import ResearchEngine
 from utils.telegram_notifier import TelegramNotifier
 from utils.logger import get_logger
 
@@ -255,6 +256,21 @@ if __name__ == "__main__":
     order_mgr = OrderManager(cfg.API_KEY, cfg.API_SECRET, cfg.USE_TESTNET)
     risk_mgr = RiskManager(CONFIG)
     telegram = TelegramNotifier(cfg.TELEGRAM_BOT_TOKEN, cfg.TELEGRAM_CHAT_ID)
+    research_engine = ResearchEngine(telegram_notifier=telegram, scan_interval_hours=24)
+
+    if "--scan" in sys.argv:
+        logger.info("🔎 Running manual on-demand market research scan...")
+        rankings = research_engine.run_market_scan()
+        research_engine.check_and_notify(SYMBOLS, force_notify=True)
+        print("\n" + "=" * 65)
+        print("  TOP 5 RECOMMENDED COINS (Rolling 30-Day Alpha)")
+        print("=" * 65)
+        for i, r in enumerate(rankings[:5], 1):
+            print(f"#{i} {r['symbol']:<10} | Score: {r['score']:>4.1f}/100 | Return: {r['net_return']:>+6.2f}% | WR: {r['win_rate']:>4.1f}% | PF: {r['profit_factor']:>4.2f}")
+        sys.exit(0)
+
+    # Start background autonomous research daemon (runs every 24h non-blocking)
+    research_engine.start_background_service(lambda: cfg.SYMBOLS)
 
     symbols_display = ", ".join(SYMBOLS)
     telegram.alert_startup(symbols_display, cfg.TIMEFRAME, cfg.USE_TESTNET)
@@ -280,5 +296,7 @@ if __name__ == "__main__":
             sleep_until_next_candle(order_mgr, telegram, cfg.TIMEFRAME, buffer_sec=5, poll_sec=10)
             run_strategy()
     except KeyboardInterrupt:
+        logger.info("Bot stopping...")
+        research_engine.stop()
         logger.info("Bot stopped by user.")
 
