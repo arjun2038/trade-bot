@@ -218,6 +218,10 @@ class ResearchEngine:
                 self.telegram.send(msg)
 
         elif force_notify or (self.last_scan_time and self.last_scan_time.hour in (8, 9)):
+            if not top5:
+                logger.warning("[RESEARCH ENGINE] No rankings available. Skipping empty health pulse alert.")
+                return
+
             # Periodic health check summary
             summary_lines = []
             for idx, r in enumerate(top5, 1):
@@ -271,3 +275,4 @@ class ResearchEngine:
     def stop(self):
         """Stop background service."""
         self._is_running = False
+
