@@ -116,16 +116,20 @@ class OrderManager:
                 logger.error(f"Response: {e.response.text}")
             return {}
 
-    def _get(self, endpoint: str, params: dict) -> dict | list:
-        """Signed GET request."""
+    def _get(self, endpoint: str, params: dict, retries: int = 2) -> dict | list | None:
+        """Signed GET request with retry on transient network errors."""
         url = f"{self.base_url}{endpoint}"
-        try:
-            resp = self.session.get(url, params=self._sign(params), timeout=10)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"GET {endpoint} failed: {e}")
-            return {}
+        for attempt in range(retries):
+            try:
+                resp = self.session.get(url, params=self._sign(params), timeout=10)
+                resp.raise_for_status()
+                return resp.json()
+            except requests.exceptions.RequestException as e:
+                if attempt < retries - 1:
+                    time.sleep(1.0)
+                    continue
+                logger.error(f"GET {endpoint} failed: {e}")
+                return None
 
     # ─────────────────────────────────────────
     #  Leverage & Margin
@@ -258,11 +262,14 @@ class OrderManager:
         """
         # 1. Fetch positions for all symbols
         pos_data = self._get("/fapi/v2/positionRisk", {})
+        if not isinstance(pos_data, list):
+            logger.warning("[OCO Reconciler] Could not verify open positions due to API/network error. Skipping reconciliation to protect active orders.")
+            return []
+
         active_symbols = set()
-        if isinstance(pos_data, list):
-            for p in pos_data:
-                if float(p.get("positionAmt", 0)) != 0:
-                    active_symbols.add(p.get("symbol"))
+        for p in pos_data:
+            if float(p.get("positionAmt", 0)) != 0:
+                active_symbols.add(p.get("symbol"))
 
         cancelled = []
 
@@ -298,12 +305,13 @@ class OrderManager:
 
         return cancelled
 
-    def get_open_positions(self, symbol: str) -> list:
-        """Get open positions for a symbol. Returns list of positions with non-zero qty."""
-        data = self._get("/fapi/v2/positionRisk", {"symbol": symbol})
+    def get_open_positions(self, symbol: str = "") -> list | None:
+        """Get open positions for a symbol. Returns list of positions with non-zero qty, or None on failure."""
+        params = {"symbol": symbol} if symbol else {}
+        data = self._get("/fapi/v2/positionRisk", params)
         if isinstance(data, list):
             return [p for p in data if float(p.get("positionAmt", 0)) != 0]
-        return []
+        return None
 
     def get_balance(self) -> float:
         """Get available USDT balance."""

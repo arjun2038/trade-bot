@@ -140,6 +140,9 @@ def run_strategy():
 
     # 3. Check open positions across all coins
     all_open_positions = order_mgr.get_open_positions("")
+    if all_open_positions is None:
+        logger.warning("Failed to fetch open positions from Binance (network error). Skipping cycle to avoid risking duplicate trades.")
+        return
     logger.info(f"Total open positions across all pairs: {len(all_open_positions)}")
 
     # 4. Iterate over configured symbols
@@ -149,7 +152,9 @@ def run_strategy():
             break
         run_strategy_for_symbol(symbol, balance, all_open_positions)
         # Refresh open positions in case a trade was just opened
-        all_open_positions = order_mgr.get_open_positions("")
+        refreshed = order_mgr.get_open_positions("")
+        if refreshed is not None:
+            all_open_positions = refreshed
 
 
 def run_backtest():
