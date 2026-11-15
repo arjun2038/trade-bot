@@ -27,9 +27,9 @@ SYMBOLS = [s.strip().replace("/", "").replace(":USDT", "") for s in SYMBOLS_RAW.
 SYMBOL = SYMBOLS[0] if SYMBOLS else "BTCUSDT"  # Backward compatibility
 TIMEFRAME = os.getenv("TIMEFRAME", "15m")
 LEVERAGE = int(os.getenv("LEVERAGE", 5))
-RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE", 1.0))   # % of balance
+RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE", os.getenv("RISK_PER_TRADE_PERCENT", 1.0)))   # % of balance
 MAX_OPEN_TRADES = int(os.getenv("MAX_OPEN_TRADES", 2))
-DAILY_LOSS_LIMIT = float(os.getenv("DAILY_LOSS_LIMIT", 5.0))  # %
+DAILY_LOSS_LIMIT = float(os.getenv("DAILY_LOSS_LIMIT", os.getenv("DAILY_LOSS_LIMIT_PERCENT", 5.0)))  # %
 
 # --- Indicator Parameters ---
 EMA_FAST = 9
