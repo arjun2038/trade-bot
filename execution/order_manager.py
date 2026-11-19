@@ -322,3 +322,12 @@ class OrderManager:
                     return float(asset.get("availableBalance", 0))
         return 0.0
 
+    def get_user_trades(self, symbol: str, limit: int = 10) -> list:
+        """Fetch recent user trades with realized PnL for a symbol."""
+        params = {"symbol": symbol, "limit": limit}
+        trades = self._get("/fapi/v1/userTrades", params)
+        if isinstance(trades, list):
+            return trades
+        return []
+
+

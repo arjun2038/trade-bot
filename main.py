@@ -16,6 +16,7 @@ from datetime import datetime
 import config as cfg
 from data.fetcher import fetch_ohlcv
 from strategy.ema_rsi_atr import generate_signal
+from strategy.macro_filter import get_macro_regime
 from execution.order_manager import OrderManager
 from risk.risk_manager import RiskManager
 from research.research_engine import ResearchEngine
@@ -39,6 +40,12 @@ CONFIG = {
     "RISK_PER_TRADE": cfg.RISK_PER_TRADE,
     "DAILY_LOSS_LIMIT": cfg.DAILY_LOSS_LIMIT,
     "MAX_OPEN_TRADES": cfg.MAX_OPEN_TRADES,
+    "USE_MACRO_FILTER": cfg.USE_MACRO_FILTER,
+    "MACRO_TIMEFRAME": cfg.MACRO_TIMEFRAME,
+    "MACRO_EMA_PERIOD": cfg.MACRO_EMA_PERIOD,
+    "RSI_MAX_LONG": cfg.RSI_MAX_LONG,
+    "RSI_MIN_SHORT": cfg.RSI_MIN_SHORT,
+    "CONSEC_LOSS_COOLDOWN_HOURS": cfg.CONSEC_LOSS_COOLDOWN_HOURS,
 }
 
 # Binance symbols to trade
@@ -50,7 +57,7 @@ risk_mgr = None
 telegram = None
 
 
-def run_strategy_for_symbol(symbol: str, balance: float, all_open_positions: list):
+def run_strategy_for_symbol(symbol: str, balance: float, all_open_positions: list, macro_regime: dict = None):
     """Execute strategy check for a specific symbol."""
     logger.info(f"--- Checking {symbol} ---")
 
@@ -59,6 +66,17 @@ def run_strategy_for_symbol(symbol: str, balance: float, all_open_positions: lis
     if symbol_positions:
         logger.info(f"{symbol} already has an active position open. Skipping.")
         return
+
+    # Check Chop Circuit Breaker (Consecutive Loss Cooldown)
+    try:
+        recent_trades = order_mgr.get_user_trades(symbol, limit=8)
+        risk_mgr.update_symbol_cooldown_from_trades(symbol, recent_trades)
+        in_cooldown, cd_reason = risk_mgr.is_symbol_in_cooldown(symbol)
+        if in_cooldown:
+            logger.info(f"🛡️ {symbol} {cd_reason}. Skipping trade.")
+            return
+    except Exception as e:
+        logger.debug(f"Could not check cooldown for {symbol}: {e}")
 
     # Fetch candles
     df = fetch_ohlcv(
@@ -77,6 +95,22 @@ def run_strategy_for_symbol(symbol: str, balance: float, all_open_positions: lis
 
     if signal["signal"] == "none":
         return
+
+    # Apply Macro Regime Filter (BTC & ETH 4H Trend Alignment)
+    if cfg.USE_MACRO_FILTER and macro_regime:
+        regime = macro_regime.get("regime", "neutral")
+        if signal["signal"] == "long" and regime != "bull":
+            logger.warning(
+                f"🛡️ [MACRO FILTER] Skipping LONG on {symbol}: BTC/ETH 4H Tide is {regime.upper()} "
+                f"({macro_regime.get('summary', '')})."
+            )
+            return
+        elif signal["signal"] == "short" and regime != "bear":
+            logger.warning(
+                f"🛡️ [MACRO FILTER] Skipping SHORT on {symbol}: BTC/ETH 4H Tide is {regime.upper()} "
+                f"({macro_regime.get('summary', '')})."
+            )
+            return
 
     # Calculate position size
     qty = risk_mgr.calculate_position_size(
@@ -145,12 +179,21 @@ def run_strategy():
         return
     logger.info(f"Total open positions across all pairs: {len(all_open_positions)}")
 
-    # 4. Iterate over configured symbols
+    # 4. Check Macro Market Tide (BTC & ETH 4H Trend Alignment)
+    macro_regime = None
+    if cfg.USE_MACRO_FILTER:
+        macro_regime = get_macro_regime(
+            use_testnet=cfg.USE_TESTNET,
+            timeframe=cfg.MACRO_TIMEFRAME,
+            period=cfg.MACRO_EMA_PERIOD
+        )
+
+    # 5. Iterate over configured symbols
     for symbol in SYMBOLS:
         if not risk_mgr.can_open_trade(len(all_open_positions)):
             logger.info("Maximum open trade capacity reached for the portfolio.")
             break
-        run_strategy_for_symbol(symbol, balance, all_open_positions)
+        run_strategy_for_symbol(symbol, balance, all_open_positions, macro_regime)
         # Refresh open positions in case a trade was just opened
         refreshed = order_mgr.get_open_positions("")
         if refreshed is not None:

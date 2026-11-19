@@ -50,3 +50,12 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 # --- Candle fetch count ---
 CANDLE_LIMIT = 200   # Number of candles to fetch for indicator calculation
 
+# --- Macro & Advanced Risk Filters ---
+USE_MACRO_FILTER = os.getenv("USE_MACRO_FILTER", "True").lower() == "true"
+MACRO_TIMEFRAME = os.getenv("MACRO_TIMEFRAME", "4h")
+MACRO_EMA_PERIOD = int(os.getenv("MACRO_EMA_PERIOD", 50))
+RSI_MAX_LONG = float(os.getenv("RSI_MAX_LONG", 68.0))
+RSI_MIN_SHORT = float(os.getenv("RSI_MIN_SHORT", 32.0))
+CONSEC_LOSS_COOLDOWN_HOURS = int(os.getenv("CONSEC_LOSS_COOLDOWN_HOURS", 12))
+
+

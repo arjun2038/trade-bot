@@ -111,8 +111,14 @@ def generate_signal(df: pd.DataFrame, cfg: dict) -> dict:
 
     sl_dist = atr_val * cfg["ATR_SL_MULTIPLIER"]
     tp_dist = atr_val * cfg["ATR_TP_MULTIPLIER"]
+    rsi_max_long = cfg.get("RSI_MAX_LONG", 68.0)
+    rsi_min_short = cfg.get("RSI_MIN_SHORT", 32.0)
 
     if ema_cross_up and rsi_bullish and volume_ok:
+        if curr["rsi"] > rsi_max_long:
+            return _no_signal(
+                f"RSI overbought exhaustion ({curr['rsi']:.1f} > {rsi_max_long} max). Skipping Long to avoid buying top."
+            )
         return {
             "signal": "long",
             "entry": entry,
@@ -124,6 +130,10 @@ def generate_signal(df: pd.DataFrame, cfg: dict) -> dict:
         }
 
     if ema_cross_down and rsi_bearish and volume_ok:
+        if curr["rsi"] < rsi_min_short:
+            return _no_signal(
+                f"RSI oversold exhaustion ({curr['rsi']:.1f} < {rsi_min_short} min). Skipping Short to avoid selling bottom."
+            )
         return {
             "signal": "short",
             "entry": entry,

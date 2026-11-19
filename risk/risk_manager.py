@@ -3,6 +3,7 @@ risk/risk_manager.py
 Handles position sizing, daily loss limit checks, and trade guards.
 """
 
+import time
 from utils.logger import get_logger
 
 logger = get_logger("risk")
@@ -15,6 +16,8 @@ class RiskManager:
         self.max_open = cfg["MAX_OPEN_TRADES"]
         self.starting_balance = None
         self.daily_start_balance = None
+        self.cooldown_hours = cfg.get("CONSEC_LOSS_COOLDOWN_HOURS", 12)
+        self.symbol_cooldowns = {}  # symbol -> expiry timestamp (float seconds)
 
     def set_balance(self, balance: float):
         """Call once at startup and each day."""
@@ -90,4 +93,41 @@ class RiskManager:
             logger.info(f"Max open trades reached ({self.max_open}). Skipping.")
             return False
         return True
+
+    def is_symbol_in_cooldown(self, symbol: str) -> tuple[bool, str]:
+        """Check if a symbol is in cooldown after consecutive stop-losses."""
+        now = time.time()
+        expiry = self.symbol_cooldowns.get(symbol, 0)
+        if now < expiry:
+            remaining_mins = int((expiry - now) / 60)
+            reason = f"Chop circuit breaker active ({remaining_mins}m remaining after consecutive losses)"
+            return True, reason
+        return False, ""
+
+    def update_symbol_cooldown_from_trades(self, symbol: str, recent_trades: list):
+        """
+        Inspect recent trades for the symbol. If the last 2 closed trades were losses,
+        trigger a cooldown to protect against sideways whipsaw.
+        """
+        if not recent_trades:
+            return
+
+        # Filter trades with realized PnL
+        closed = [t for t in recent_trades if float(t.get("realizedPnl", 0)) != 0]
+        if len(closed) >= 2:
+            last_2 = closed[-2:]
+            pnls = [float(t.get("realizedPnl", 0)) for t in last_2]
+            if all(p < 0 for p in pnls):
+                # Both trades were losses
+                last_trade_time = float(last_2[-1].get("time", 0)) / 1000.0
+                cooldown_end = last_trade_time + (self.cooldown_hours * 3600)
+                now = time.time()
+                if now < cooldown_end:
+                    self.symbol_cooldowns[symbol] = cooldown_end
+                    remaining_hrs = (cooldown_end - now) / 3600
+                    logger.warning(
+                        f"🛡️ [CHOP CIRCUIT BREAKER] {symbol} hit 2 consecutive losses "
+                        f"(PnLs: ${pnls[0]:.2f}, ${pnls[1]:.2f}). Cooldown active for {remaining_hrs:.1f} hours."
+                    )
+
 
